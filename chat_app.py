@@ -84,24 +84,37 @@ def chat_loop():
             break
         
         messages.append(ChatMessage.from_user(user_input))
-        response = chat_generator.run(messages)
+        # response = chat_generator.run(messages)
         
-        if response.meta.get("function_call"):
-            function_args = response.meta["function_call"]["arguments"]
-            result = calculate_investment(**function_args)
+        # if response.meta.get("function_call"):
+        #     function_args = response.meta["function_call"]["arguments"]
+        #     result = calculate_investment(**function_args)
             
-            # Add function response to messages
-            messages.append(ChatMessage.from_assistant(response.data))
-            messages.append(ChatMessage.from_function(
-                result,
-                name="calculate_investment"
-            ))
+        #     # Add function response to messages
+        #     messages.append(ChatMessage.from_assistant(response.data))
+        #     messages.append(ChatMessage.from_function(
+        #         result,
+        #         name="calculate_investment"
+        #     ))
             
-            # Get AI to explain the results
-            response = chat_generator.run(messages)
+        #     # Get AI to explain the results
+        #     response = chat_generator.run(messages)
         
-        print(f"\nFinancial Advisor: {response.data}")
-        messages.append(ChatMessage.from_assistant(response.data))
+        # Debug information instead of actual API call
+        request_count += 1
+        token_count = count_tokens(messages)
+        print(f"\nDEBUG - Request #{request_count}")
+        print(f"Current token count: {token_count}")
+        print(f"Estimated cost: ${(token_count / 1000) * 0.002:.4f} USD")
+        
+        # For debugging, simulate a simple response
+        print("\nFinancial Advisor: [Simulated response for debugging]")
+        
+        # Add simulated response to messages for token counting
+        messages.append(ChatMessage.from_assistant("[Simulated response for debugging]"))
+
+        # print(f"\nFinancial Advisor: {response.data}")
+        # messages.append(ChatMessage.from_assistant(response.data))
 
 if __name__ == "__main__":
     chat_loop() 
