@@ -5,6 +5,7 @@ from haystack.utils import Secret
 from haystack.dataclasses import ChatMessage
 from haystack.components.generators.utils import print_streaming_chunk
 from compound_interest import calculate
+from tiktoken import encoding_for_model
 
 # Load environment variables
 load_dotenv()
@@ -50,6 +51,17 @@ def calculate_investment(principal: float, rate: float, time: int, monthly_expen
     """Wrapper function to call the calculate function and format the output"""
     results, schedule = calculate(principal, rate, time, monthly_expense)
     return f"{results}\n\n{schedule}"
+
+def count_tokens(messages):
+    """Count tokens in messages"""
+    encoding = encoding_for_model("gpt-3.5-turbo")
+    num_tokens = 0
+    for message in messages:
+        # Count tokens in the content
+        num_tokens += len(encoding.encode(message.content or ""))
+        # Add overhead for each message (4 tokens for metadata)
+        num_tokens += 4
+    return num_tokens
 
 def chat_loop():
     """Main chat loop for interacting with the user"""
