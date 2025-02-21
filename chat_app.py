@@ -1,5 +1,8 @@
 import os
+from typing import Annotated 
 from dotenv import load_dotenv
+from haystack.tools import tool, Tool
+from haystack.components.tools import ToolInvoker
 from haystack.components.generators.chat import OpenAIChatGenerator
 from haystack.utils import Secret
 from haystack.dataclasses import ChatMessage
@@ -10,47 +13,49 @@ from tiktoken import encoding_for_model
 # Load environment variables
 load_dotenv()
 
+# Replace the @tool decorator and function with a Tool class instance
+calculate_investment = Tool(
+    name="calculate_investment",
+    description="Calculate compound interest for an investment",
+    parameters={
+        "type": "object",
+        "properties": {
+            "principal": {
+                "type": "number",
+                "description": "initial investment amount"
+            },
+            "rate": {
+                "type": "number",
+                "description": "Annual interest rate as percentage"
+            },
+            "time": {
+                "type": "number",
+                "description": "Time period in years"
+            },
+            "monthly_expense": {
+                "type": "number",
+                "description": "Monthly withdrawal/expense amount"
+            }
+        },
+        "required": ["principal", "rate", "time", "monthly_expense"],
+        "additionalProperties": False
+    },
+    function=lambda **kwargs: calculate(
+        principal=kwargs.get('principal', 1000),
+        rate=kwargs.get('rate', 5),
+        time=kwargs.get('time', 1),
+        monthly_expense=kwargs.get('monthly_expense', 0)
+    )
+)
+
 # Initialize the chat generator with OpenAI
 chat_generator = OpenAIChatGenerator(
     api_key=Secret.from_env_var("OPENAI_API_KEY"),
     model="gpt-4o-mini",
-    streaming_callback=print_streaming_chunk,
-    generation_kwargs={
-        "functions": [
-            {
-                "name": "calculate_investment",
-                "description": "Calculate compound interest with monthly expenses",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "principal": {
-                            "type": "number",
-                            "description": "Initial investment amount"
-                        },
-                        "rate": {
-                            "type": "number",
-                            "description": "Annual interest rate as a percentage"
-                        },
-                        "time": {
-                            "type": "integer",
-                            "description": "Time period in years"
-                        },
-                        "monthly_expense": {
-                            "type": "number",
-                            "description": "Monthly withdrawal/expense amount"
-                        }
-                    },
-                    "required": ["principal", "rate", "time", "monthly_expense"]
-                }
-            }
-        ]
-    }
+    tools=[calculate_investment],
+    tools_strict=True
 )
-
-def calculate_investment(principal: float, rate: float, time: int, monthly_expense: float):
-    """Wrapper function to call the calculate function and format the output"""
-    results, schedule = calculate(principal, rate, time, monthly_expense)
-    return f"{results}\n\n{schedule}"
+tool_invoker = ToolInvoker(tools=[calculate_investment])
 
 def count_tokens(messages):
     """Count tokens in messages"""
@@ -58,7 +63,7 @@ def count_tokens(messages):
     num_tokens = 0
     for message in messages:
         # Count tokens in the content
-        num_tokens += len(encoding.encode(message.content or ""))
+        num_tokens += len(encoding.encode(message.text or ""))
         # Add overhead for each message (4 tokens for metadata)
         num_tokens += 4
     return num_tokens
@@ -85,40 +90,32 @@ def chat_loop():
             break
         
         messages.append(ChatMessage.from_user(user_input))
-        response = chat_generator.run(messages)
-        print(response)
+        response = chat_generator.run(messages=messages)
+        replies = response["replies"]
+        
+        # Handle the first reply
+        assistant_reply = replies[0]
+        messages.append(assistant_reply)
+        print(f"\nFinancial Advisor: {assistant_reply.text}")
 
-        if response['meta'].get("function_call"):
-            print("Calling function...")
-            print(response.meta.get("function_call"))
-            function_args = response.meta["function_call"]["arguments"]
-            result = calculate_investment(**function_args)
+        if assistant_reply.tool_calls:
+            print("Calling tool...")
+            tool_response = tool_invoker.run(messages=[assistant_reply])
+            tool_messages = tool_response["tool_messages"]
+            messages.extend(tool_messages)
             
-            # Add function response to messages
-            messages.append(ChatMessage.from_assistant(response.data))
-            messages.append(ChatMessage.from_function(
-                result,
-                name="calculate_investment"
-            ))
-            
-            # Get AI to explain the results
-            response = chat_generator.run(messages)
-        
-        # Debug information instead of actual API call
-        request_count += 1
-        token_count = count_tokens(messages)
-        print(f"\nDEBUG - Request #{request_count}")
-        print(f"Current token count: {token_count}")
-        print(f"Estimated cost: ${(token_count / 1000) * 0.002:.4f} USD")
-        
-        # For debugging, simulate a simple response
-        # print("\nFinancial Advisor: [Simulated response for debugging]")
-        
-        # Add simulated response to messages for token counting
-        messages.append(ChatMessage.from_assistant("[Simulated response for debugging]"))
+            # Get final response after tool execution
+            final_response = chat_generator.run(messages=messages)
+            final_reply = final_response["replies"][0]
+            messages.append(final_reply)
+            print(f"\nFinancial Advisor: {final_reply.text}")
 
-        print(f"\nFinancial Advisor: {response.data}")
-        messages.append(ChatMessage.from_assistant(response.data))
+        # # Debug information
+        # request_count += 1
+        # token_count = count_tokens(messages)
+        # print(f"\nDEBUG - Request #{request_count}")
+        # print(f"Current token count: {token_count}")
+        # print(f"Estimated cost: ${(token_count / 1000) * 0.002:.4f} USD")
 
 if __name__ == "__main__":
     chat_loop() 
